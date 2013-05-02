@@ -1,0 +1,22 @@
+#!/bin/sh
+./configure \
+  --disable-lzo \
+  --disable-multi \
+  --disable-server \
+  --disable-plugins \
+  --disable-eurephia \
+  --disable-socks \
+  --disable-http-proxy \
+  --disable-port-share \
+  CPPFLAGS="-DVDE" \
+  LDFLAGS="-lvdeplug"
+
+# vde switch:
+# $ sudo vde_switch -t tap0 -g adm -m 0660
+#
+# openvpn server:
+# $ sudo openvpn --mode p2p --dev tap1
+#
+# openvpn client:  # note - runs as normal user
+# $ src/openvpn/openvpn --mode p2p --lport 2294 --remote 127.0.0.1
+#       --dev vde --dev-type tap --dev-node /var/run/vde.ctl
