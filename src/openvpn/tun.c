@@ -48,6 +48,7 @@
 #include "win32.h"
 
 #include "memdbg.h"
+#include <assert.h>
 #include <string.h>
 
 #ifdef WIN32
@@ -1262,6 +1263,8 @@ clear_tuntap (struct tuntap *tuntap)
   CLEAR (*tuntap);
 #ifdef WIN32
   tuntap->hand = NULL;
+#elif defined(VDE)
+  tuntap->vde = NULL;
 #else
   tuntap->fd = -1;
 #endif
@@ -1297,6 +1300,9 @@ open_tun_generic (const char *dev, const char *dev_type, const char *dev_node,
     }
   else
     {
+#ifdef VDE
+      assert (false);  /* expect we'll be on the TARGET_LINUX specific path */
+#else
       /*
        * --dev-node specified, so open an explicit device node
        */
@@ -1382,14 +1388,19 @@ open_tun_generic (const char *dev, const char *dev_type, const char *dev_node,
 
       /* tt->actual_name is passed to up and down scripts and used as the ifconfig dev name */
       tt->actual_name = string_alloc (dynamic_opened ? dynamic_name : dev, NULL);
+#endif
     }
 }
 
 static void
 close_tun_generic (struct tuntap *tt)
 {
+#ifdef VDE
+  vde_close(tt->vde);
+#else
   if (tt->fd >= 0)
     close (tt->fd);
+#endif
   if (tt->actual_name)
     free (tt->actual_name);
   clear_tuntap (tt);
@@ -1482,6 +1493,35 @@ open_tun (const char *dev, const char *dev_type, const char *dev_node, struct tu
       if (!node)
 	node = "/dev/net/tun";
 
+#ifdef VDE
+      /*
+       * vde is:
+       * --dev vde
+       * --dev-type tap
+       * --dev-node /path/to/vde/switch
+       */
+      assert (strcmp(dev, "vde") == 0);
+      assert (strcmp(dev_type, "tap") == 0);  /* no tun support for now */
+      assert (dev_node != NULL);
+
+      /* vde_open arg 1 isn't const, so need a copy */
+      char *vde_switch = string_alloc (dev_node, NULL);
+
+      char descr[] = "openvpn";
+      struct vde_open_args open_args = {
+        .port = 0,
+        .group = NULL,
+        .mode = 0,
+      };
+      tt->vde = vde_open(vde_switch, descr, &open_args);
+      free(vde_switch);
+      assert (tt->vde != NULL);
+
+      msg (M_INFO, "VDE device %s opened", dev_node);
+
+      /* tt->actual_name is passed to up and down scripts and used as the ifconfig dev name */
+      tt->actual_name = string_alloc ("vde", NULL);
+#else
       /*
        * Open the interface
        */
@@ -1564,6 +1604,7 @@ open_tun (const char *dev, const char *dev_type, const char *dev_node, struct tu
       set_nonblock (tt->fd);
       set_cloexec (tt->fd);
       tt->actual_name = string_alloc (ifr.ifr_name, NULL);
+#endif
     }
   return;
 }
@@ -1607,6 +1648,9 @@ tuncfg (const char *dev, const char *dev_type, const char *dev_node, int persist
 {
   struct tuntap *tt;
 
+#ifdef VDE
+  assert (false);  /* don't support persist-tun in VDE mode */
+#else
   ALLOC_OBJ (tt, struct tuntap);
   clear_tuntap (tt);
   tt->type = dev_type_enum (dev, dev_type);
@@ -1636,6 +1680,7 @@ tuncfg (const char *dev, const char *dev_type, const char *dev_node, int persist
     }
   close_tun (tt);
   msg (M_INFO, "Persist state set to: %s", (persist_mode ? "ON" : "OFF"));
+#endif
 }
 
 #endif /* ENABLE_FEATURE_TUN_PERSIST */
@@ -1694,6 +1739,9 @@ close_tun (struct tuntap *tt)
 int
 write_tun (struct tuntap* tt, uint8_t *buf, int len)
 {
+#ifdef VDE
+  return vde_send (tt->vde, buf, len, 0);
+#else
   if (tt->ipv6)
     {
       struct tun_pi pi;
@@ -1720,11 +1768,15 @@ write_tun (struct tuntap* tt, uint8_t *buf, int len)
     }
   else
     return write (tt->fd, buf, len);
+#endif
 }
 
 int
 read_tun (struct tuntap* tt, uint8_t *buf, int len)
 {
+#ifdef VDE
+  return vde_recv (tt->vde, buf, len, 0);
+#else
   if (tt->ipv6)
     {
       struct iovec vect[2];
@@ -1741,6 +1793,7 @@ read_tun (struct tuntap* tt, uint8_t *buf, int len)
     }
   else
     return read (tt->fd, buf, len);
+#endif
 }
 
 #elif defined(TARGET_SOLARIS)

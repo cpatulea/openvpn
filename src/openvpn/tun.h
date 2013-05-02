@@ -30,6 +30,10 @@
 #include <tap-windows.h>
 #endif
 
+#ifdef VDE
+#include <libvdeplug.h>
+#endif
+
 #include "buffer.h"
 #include "error.h"
 #include "mtu.h"
@@ -173,6 +177,8 @@ struct tuntap
   DWORD adapter_index;
 
   int standby_iter;
+#elif defined(VDE)
+  VDECONN *vde;
 #else
   int fd;   /* file descriptor for TUN/TAP dev */
 #endif
@@ -194,6 +200,8 @@ tuntap_defined (const struct tuntap *tt)
 {
 #ifdef WIN32
   return tt && tt->hand != NULL;
+#elif defined(VDE)
+  return tt && tt->vde != NULL;
 #else
   return tt && tt->fd >= 0;
 #endif
@@ -451,6 +459,8 @@ tun_event_handle (const struct tuntap *tt)
 {
 #ifdef WIN32
   return &tt->rw_handle;
+#elif defined(VDE)
+  return vde_datafd(tt->vde);
 #else
   return tt->fd;
 #endif
